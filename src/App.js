@@ -1,161 +1,268 @@
-import React, { Component } from 'react';
-import logo from './logo.svg';
+import React, { Component, createRef } from 'react';
 import './App.css';
-import Web3 from "web3";
-import Web3Modal from "web3modal";
-import WalletConnectProvider from "@walletconnect/web3-provider";
-import {
-  getChainData
-} from "./utilities/chains";
+import Web3 from 'web3';
+import Web3Modal from 'web3modal';
+import WalletConnectProvider from '@walletconnect/web3-provider';
 
+const Networks = [
+  {
+    chainId: 5,
+    name: 'Goerli Testnet',
+    internalIndex: 0,
+  },
+  {
+    chainId: 4,
+    name: 'Rinkeby Testnet',
+    internalIndex: 1,
+  },
+  {
+    chainId: 0xfa2,
+    name: 'FTM Testnet',
+    internalIndex: 2,
+  },
+];
 
-interface IAppState {
-  fetching: boolean;
-  address: string;
-  web3: any;
-  provider: any;
-  connected: boolean;
-  chainId: number;
-  networkId: number;
-  assets: IAssetData[];
-  showModal: boolean;
-  pendingRequest: boolean;
-  result: any | null;
-}
-
-const INITIAL_STATE: IAppState = {
-  fetching: false,
-  address: "",
+const INITIAL_STATE = {
+  address: '',
   web3: null,
   provider: null,
   connected: false,
   chainId: 1,
-  networkId: 1,
-  assets: [],
-  showModal: false,
-  pendingRequest: false,
-  result: null
+  selIndex: -1,
+  tpl: 'ERC20',
 };
 
 class App extends Component {
-  web3Modal: Web3Modal;
-  state: IAppState;
-  
-  constructor(props: any) {
+  constructor(props) {
     super(props);
     this.state = {
-      ...INITIAL_STATE
+      ...INITIAL_STATE,
     };
 
     this.web3Modal = new Web3Modal({
-      network: this.getNetwork(),
-      cacheProvider: false,
-      providerOptions: this.getProviderOptions()
+      cacheProvider: true,
+      providerOptions: this.getProviderOptions(),
     });
+
+    this.ref1 = createRef();
+    this.ref2 = createRef();
+
+    this.onTemplateChange = this.onTemplateChange.bind(this);
+  }
+
+  Templates = [
+    {
+      name: 'ERC20',
+      code: (
+        <>
+          <tr>
+            <td>Amount:</td>
+            <td>
+              <input ref={this.ref1} className="tw-100" type="edit" />
+            </td>
+          </tr>
+          <tr>
+            <td>Recipient:</td>
+            <td>
+              <input ref={this.ref2} className="tw-100" type="edit" />
+            </td>
+          </tr>
+        </>
+      ),
+    },
+    {
+      name: 'ERC721',
+      code: (
+        <>
+          <tr>
+            <td>TokenID:</td>
+            <td>
+              <input ref={this.ref1} className="tw-100" type="edit" />
+            </td>
+          </tr>
+          <tr>
+            <td>Recipient:</td>
+            <td>
+              <input ref={this.ref2} className="tw-100" type="edit" />
+            </td>
+          </tr>
+        </>
+      ),
+    },
+    {
+      name: 'Custom',
+      code: (
+        <tr>
+          <td>Data:</td>
+          <td>
+            <input ref={this.ref1} className="tw-100" type="edit" />
+          </td>
+        </tr>
+      ),
+    },
+  ];
+
+  onTemplateChange(ev) {
+    this.setState({ tpl: ev.target.id });
   }
 
   async componentDidMount() {
-    await this.setup()
+    await this.setup();
   }
-  
-  subscribeProvider = async (provider: any) => {
+
+  async componentWillUnmount() {
+    this.resetApp(false);
+  }
+
+  subscribeProvider = async (provider) => {
     if (!provider.on) {
       return;
     }
-    
-    provider.on("close", () => {
-      this.resetApp()
-    });
-    
-    provider.on("disconnect", () => {
-      this.resetApp()
-    });
-    
-    provider.on("accountsChanged", async (accounts: string[]) => {
-      await this.setState({ address: accounts[0] });
-      //await this.getAccountAssets();
-    });
-    
-    provider.on("chainChanged", async (chainId: number) => {
-      const { web3 } = this.state;
-      const networkId = await web3.eth.net.getId();
-      await this.setState({ chainId, networkId });
-      //await this.getAccountAssets();
+
+    provider.on('disconnect', () => {
+      this.resetApp(false);
     });
 
-    provider.on("networkChanged", async (networkId: number) => {
-      const { web3 } = this.state;
-      const chainId = await web3.eth.chainId();
-      await this.setState({ chainId, networkId });
-      //await this.getAccountAssets();
+    provider.on('accountsChanged', async (accounts) => {
+      this.setState({ address: accounts[0] });
+    });
+
+    provider.on('chainChanged', async (chainId) => {
+      const chainIdInt = parseInt(chainId);
+      if (this.state.chainId !== chainIdInt) {
+        this._updateNetworkList(chainIdInt);
+        this.setState({ chainId: chainIdInt });
+        console.log('Network changed: ', chainIdInt);
+      }
     });
   };
-  
-  getNetwork = () => getChainData(this.state.chainId).network;
 
   getProviderOptions = () => {
     const providerOptions = {
       walletconnect: {
         package: WalletConnectProvider,
         options: {
-          infuraId: process.env.REACT_APP_INFURA_ID
-        }
-      }
-    }
-    return providerOptions
-  }
-  
+          infuraId: process.env.REACT_APP_INFURA_ID,
+        },
+      },
+    };
+    return providerOptions;
+  };
+
   setup = async () => {
     const provider = await this.web3Modal.connect();
     await this.subscribeProvider(provider);
-    
+
     const web3 = new Web3(provider);
     const accounts = await web3.eth.getAccounts();
     const address = accounts[0];
-    const networkId = await web3.eth.net.getId();
-    var chainId;
-    
-    if (typeof web3.eth.chainId === 'function')
-      chainId = await web3.eth.chainId();
-    else
-      chainId = await web3.eth.getChainId();
-    
-    await this.setState({
+    const chainId = await web3.eth.getChainId();
+
+    console.log('Connected: ', chainId);
+
+    this.setState({
       web3,
       provider,
       connected: true,
       address,
       chainId,
-      networkId
+      selIndex: -1,
     });
-  }
+    this._updateNetworkList(chainId);
+  };
 
-  resetApp = async () => {
-    const { web3 } = this.state;
+  resetApp = async (clearCache) => {
+    const { provider, web3 } = this.state;
+    if (provider) provider.removeAllListeners();
     if (web3 && web3.currentProvider && web3.currentProvider.close) {
       await web3.currentProvider.close();
     }
-    await this.web3Modal.clearCachedProvider();
+    if (clearCache) {
+      this.web3Modal.clearCachedProvider();
+    }
     this.setState({ ...INITIAL_STATE });
   };
-  
+
+  _updateNetworkList(chainId) {
+    if (chainId === 4 || chainId === 5 || chainId === 0xfa2) {
+      this.networkList = Networks.sort((a, b) =>
+        a.chainId === chainId ? -1 : b.chainId === chainId ? 1 : 0
+      );
+      this.setState({ selIndex: this.networkList[1].internalIndex });
+    } else this.networkList = undefined;
+  }
+
   render() {
+    const { chainId, selIndex, tpl } = this.state;
     return (
-      <div className="App">
-        <header className="App-header">
-          <img src={logo} className="App-logo" alt="logo" />
-          <p>
-            Edit <code>src/App.js</code> and save to reload.
-          </p>
-          <a
-            className="App-link"
-            href="https://reactjs.org"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Learn React
-          </a>
-        </header>
+      <div id="App">
+        <div id="Content">
+          <span className="header">
+            <b>CHAINPORT BRIDGE</b>
+          </span>
+          <hr />
+          <table>
+            <thead>
+              <tr>
+                <td>Selected Network:</td>
+                <td>
+                  {this.networkList
+                    ? this.networkList[0].name
+                    : `Unsupported (${chainId})`}
+                </td>
+              </tr>
+              <tr>
+                <td colSpan="2">
+                  <hr />
+                </td>
+              </tr>
+            </thead>
+            <tbody>
+              {this.networkList &&
+                this.networkList
+                  .filter((_, index) => index > 0)
+                  .map((n, index) => (
+                    <tr key={`NET_${index}`}>
+                      <td>{index === 0 ? 'Target Network:' : ''}</td>
+                      <td>
+                        <input
+                          className="radio-margin"
+                          defaultChecked={selIndex === n.internalIndex}
+                          id={n.internalIndex}
+                          type="radio"
+                          name="destChain"
+                          value={n.internalIndex}
+                        />
+                        <label htmlFor={n.internalIndex}>{n.name}</label>
+                      </td>
+                    </tr>
+                  ))}
+            </tbody>
+          </table>
+          <hr />
+          <table>
+            <tbody>
+              <tr>
+                <td>Template:</td>
+                <td onChange={this.onTemplateChange}>
+                  {this.Templates.map((t, idx) => (
+                    <span key={`TPL_${t.name}`}>
+                      <input
+                        className={idx ? '' : 'radio-margin'}
+                        name="template"
+                        id={t.name}
+                        type="radio"
+                        defaultChecked={tpl === t.name}
+                      />
+                      <label htmlFor={t.name}>{t.name}</label>
+                    </span>
+                  ))}
+                </td>
+              </tr>
+              {this.Templates.find((t) => t.name === tpl).code}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
